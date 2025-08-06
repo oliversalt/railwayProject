@@ -12,6 +12,8 @@ from typing import List, Dict, Any, Optional
 import logging
 import uvicorn
 import os
+import gc
+from datetime import datetime
 from contextlib import asynccontextmanager
 
 # Configure logging
@@ -23,21 +25,65 @@ model = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the GloVe model on startup and keep it in memory"""
-    global model
-    logger.info("Loading GloVe model...")
+    """Load the GloVe model at startup and clean up at shutdown"""
+    print("🚀 Starting Word Vector API...")
+    
+    # Initialize loading state
+    app.state.model_loaded = False
+    app.state.loading_status = "Starting up..."
+    app.state.loading_progress = 0
+    app.state.model = None
+    
     try:
-        # Load the 100-dimensional GloVe model
-        model = api.load("glove-wiki-gigaword-100")
-        logger.info(f"Model loaded successfully. Vocabulary size: {len(model.key_to_index)}")
+        print("📥 Loading GloVe model (downloading if needed - may take 5-10 minutes on first run)...")
+        app.state.loading_status = "Downloading GloVe model..."
+        app.state.loading_progress = 25
+        
+        import time
+        start_time = time.time()
+        
+        app.state.loading_status = "Loading model into memory..."
+        app.state.loading_progress = 50
+        
+        # Load the model
+        print("Loading model...")
+        app.state.model = api.load('glove-wiki-gigaword-100')
+        print("Model loaded successfully!")
+        
+        app.state.loading_status = "Optimizing memory usage..."
+        app.state.loading_progress = 75
+        
+        # Force garbage collection to optimize memory usage
+        gc.collect()
+        
+        load_time = time.time() - start_time
+        
+        print(f"✅ GloVe model loaded successfully in {load_time:.1f} seconds!")
+        print(f"📚 Vocabulary size: {len(app.state.model.key_to_index):,} words")
+        print("🌐 API is ready!")
+        
+        # Mark model as loaded AFTER successful loading
+        app.state.model_loaded = True
+        app.state.loading_status = "Ready!"
+        app.state.loading_progress = 100
+        
     except Exception as e:
-        logger.error(f"Failed to load model: {e}")
-        raise e
+        print(f"❌ Error loading model: {e}")
+        import traceback
+        traceback.print_exc()
+        app.state.model = None
+        app.state.model_loaded = False
+        app.state.loading_status = f"Error: {str(e)}"
+        app.state.loading_progress = 0
+        # Don't raise - let the app start anyway so we can see the error
     
     yield
     
-    # Cleanup (if needed)
-    logger.info("Shutting down...")
+    print("🔄 Shutting down Word Vector API...")
+    # Clean up resources
+    if hasattr(app.state, 'model') and app.state.model:
+        del app.state.model
+    gc.collect()
 
 # Create FastAPI app with lifespan events
 app = FastAPI(
@@ -55,14 +101,7 @@ async def serve_frontend():
     """Serve the beautiful frontend interface"""
     return FileResponse("static/index.html")
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "message": "Word Vector API is running",
-        "model_loaded": model is not None,
-        "vocabulary_size": len(model.key_to_index) if model else 0
-    }
+
 
 @app.get("/similarity")
 async def get_similarity(
@@ -79,18 +118,19 @@ async def get_similarity(
     Returns:
         JSON with similarity score between -1 and 1
     """
-    if not model:
+    # Check if model is loaded using app.state
+    if not getattr(app.state, 'model_loaded', False) or not hasattr(app.state, 'model') or app.state.model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
     try:
         # Check if both words exist in vocabulary
-        if word1.lower() not in model.key_to_index:
+        if word1.lower() not in app.state.model.key_to_index:
             raise HTTPException(status_code=404, detail=f"Word '{word1}' not found in vocabulary")
-        if word2.lower() not in model.key_to_index:
+        if word2.lower() not in app.state.model.key_to_index:
             raise HTTPException(status_code=404, detail=f"Word '{word2}' not found in vocabulary")
         
         # Calculate similarity
-        similarity = model.similarity(word1.lower(), word2.lower())
+        similarity = app.state.model.similarity(word1.lower(), word2.lower())
         
         return {
             "word1": word1.lower(),
@@ -122,18 +162,19 @@ async def solve_analogy(
     Returns:
         JSON with most similar words to the analogy result
     """
-    if not model:
+    # Check if model is loaded using app.state
+    if not getattr(app.state, 'model_loaded', False) or not hasattr(app.state, 'model') or app.state.model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
     try:
         # Check if all words exist in vocabulary
         words = [a.lower(), b.lower(), c.lower()]
         for word in words:
-            if word not in model.key_to_index:
+            if word not in app.state.model.key_to_index:
                 raise HTTPException(status_code=404, detail=f"Word '{word}' not found in vocabulary")
         
         # Solve analogy: a - b + c
-        results = model.most_similar(
+        results = app.state.model.most_similar(
             positive=[a.lower(), c.lower()],
             negative=[b.lower()],
             topn=topn
@@ -169,16 +210,17 @@ async def get_neighbors(
     Returns:
         JSON with most similar words and their similarity scores
     """
-    if not model:
+    # Check if model is loaded using app.state
+    if not getattr(app.state, 'model_loaded', False) or not hasattr(app.state, 'model') or app.state.model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
     try:
         # Check if word exists in vocabulary
-        if word.lower() not in model.key_to_index:
+        if word.lower() not in app.state.model.key_to_index:
             raise HTTPException(status_code=404, detail=f"Word '{word}' not found in vocabulary")
         
         # Get most similar words
-        similar_words = model.most_similar(word.lower(), topn=topn)
+        similar_words = app.state.model.most_similar(word.lower(), topn=topn)
         
         return {
             "word": word.lower(),
@@ -195,6 +237,30 @@ async def get_neighbors(
         logger.error(f"Error finding neighbors: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for hosting platforms"""
+    model_loaded = getattr(app.state, 'model_loaded', False)
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "Word Vector API",
+        "model_loaded": model_loaded,
+        "vocabulary_size": len(app.state.model.key_to_index) if model_loaded and hasattr(app.state, 'model') and app.state.model is not None else 0
+    }
+
+
+@app.get("/loading-status")
+async def loading_status():
+    """Get current loading status and progress"""
+    return {
+        "model_loaded": getattr(app.state, 'model_loaded', False),
+        "loading_status": getattr(app.state, 'loading_status', 'Unknown'),
+        "loading_progress": getattr(app.state, 'loading_progress', 0),
+        "vocabulary_size": len(app.state.model.key_to_index) if getattr(app.state, 'model_loaded', False) and hasattr(app.state, 'model') and app.state.model else 0
+    }
+
+
 @app.get("/vocabulary")
 async def get_vocabulary_info():
     """
@@ -203,20 +269,32 @@ async def get_vocabulary_info():
     Returns:
         JSON with vocabulary statistics
     """
-    if not model:
+    # Check if model is loaded using app.state
+    if not getattr(app.state, 'model_loaded', False) or not hasattr(app.state, 'model') or app.state.model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
     return {
-        "vocabulary_size": len(model.key_to_index),
-        "vector_dimensions": model.vector_size,
-        "sample_words": list(model.key_to_index.keys())[:20]  # First 20 words as sample
+        "vocabulary_size": len(app.state.model.key_to_index),
+        "vector_dimensions": app.state.model.vector_size,
+        "sample_words": list(app.state.model.key_to_index.keys())[:20]  # First 20 words as sample
     }
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=True
-    )
+    # Detect hosting platform and set appropriate port
+    port = int(os.environ.get("PORT", 8000))
+    
+    # Check if running on various hosting platforms
+    is_render = os.getenv('RENDER') is not None
+    is_railway = os.getenv('RAILWAY_ENVIRONMENT') is not None
+    is_heroku = os.getenv('DYNO') is not None
+    
+    if is_render:
+        print("🌐 Detected Render.com hosting")
+    elif is_railway:
+        print("🚂 Detected Railway hosting")
+    elif is_heroku:
+        print("🟣 Detected Heroku hosting")
+    else:
+        print("💻 Running locally")
+    
+    uvicorn.run(app, host="0.0.0.0", port=port)

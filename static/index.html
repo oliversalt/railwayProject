@@ -248,10 +248,50 @@
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 30px;
-            border-left: 4px solid #4facfe;
         }
 
-        .api-info h4 {
+        /* Loading Progress Bar */
+        .loading-container {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .loading-status {
+            font-size: 16px;
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .model-ready {
+            background: #d1edff;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }        .api-info h4 {
             color: #0066cc;
             margin-bottom: 10px;
         }
@@ -289,6 +329,16 @@
         </div>
         
         <div class="content">
+            <!-- Loading Progress Bar -->
+            <div id="loadingContainer" class="loading-container" style="display: none;">
+                <div class="loading-status" id="loadingStatus">Checking model status...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%;">0%</div>
+                </div>
+                <p>🤖 First time startup may take 5-10 minutes to download the model.</p>
+                <p>⚡ Subsequent loads are much faster (30-60 seconds).</p>
+            </div>
+
             <div class="api-info">
                 <h4>🚀 Powered by GloVe Embeddings</h4>
                 <p>This tool uses 100-dimensional word vectors trained on Wikipedia data to understand semantic relationships. Try the examples below or experiment with your own words!</p>
@@ -506,8 +556,71 @@
             element.innerHTML = `<div class="error">❌ ${message}</div>`;
         }
 
+        // Check model loading status
+        async function checkLoadingStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/loading-status`);
+                const data = await response.json();
+                
+                const container = document.getElementById('loadingContainer');
+                const statusEl = document.getElementById('loadingStatus');
+                const progressEl = document.getElementById('progressFill');
+                
+                // Always show container if model is not fully loaded
+                if (data.model_loaded && data.loading_progress >= 100) {
+                    // Model is ready
+                    container.className = 'loading-container model-ready';
+                    statusEl.textContent = '✅ Model loaded! Ready to process requests.';
+                    progressEl.style.width = '100%';
+                    progressEl.textContent = '100%';
+                    
+                    // Hide after 5 seconds
+                    setTimeout(() => {
+                        container.style.display = 'none';
+                    }, 5000);
+                    
+                    return true; // Model is ready
+                } else {
+                    // Model is still loading or has error
+                    container.style.display = 'block';
+                    container.className = 'loading-container';
+                    statusEl.textContent = data.loading_status || 'Loading model...';
+                    const progress = Math.max(0, Math.min(100, data.loading_progress || 0));
+                    progressEl.style.width = progress + '%';
+                    progressEl.textContent = progress + '%';
+                    
+                    return false; // Model not ready yet
+                }
+            } catch (error) {
+                console.error('Failed to check loading status:', error);
+                const container = document.getElementById('loadingContainer');
+                container.style.display = 'block';
+                container.className = 'loading-container';
+                container.innerHTML = '<div class="error">Unable to check model status. Please try refreshing the page.</div>';
+                return false;
+            }
+        }
+
+        // Start checking loading status
+        async function startLoadingStatusCheck() {
+            const isReady = await checkLoadingStatus();
+            
+            if (!isReady) {
+                // Check every 5 seconds until ready
+                const interval = setInterval(async () => {
+                    const ready = await checkLoadingStatus();
+                    if (ready) {
+                        clearInterval(interval);
+                    }
+                }, 5000);
+            }
+        }
+
         // Add enter key listeners
         document.addEventListener('DOMContentLoaded', function() {
+            // Start loading status check immediately
+            startLoadingStatusCheck();
+            
             // Similarity inputs
             ['word1', 'word2'].forEach(id => {
                 document.getElementById(id).addEventListener('keypress', function(e) {
