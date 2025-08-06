@@ -5,6 +5,8 @@ Uses GloVe embeddings loaded into memory for fast vector operations
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import gensim.downloader as api
 from typing import List, Dict, Any, Optional
 import logging
@@ -45,8 +47,16 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 @app.get("/")
-async def root():
+async def serve_frontend():
+    """Serve the beautiful frontend interface"""
+    return FileResponse("static/index.html")
+
+@app.get("/health")
+async def health_check():
     """Health check endpoint"""
     return {
         "message": "Word Vector API is running",
