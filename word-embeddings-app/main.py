@@ -3,10 +3,9 @@ Word Vector API - FastAPI application for semantic word operations
 Uses GloVe embeddings loaded into memory for fast vector operations
 """
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
 import gensim.downloader as api
 from typing import List, Dict, Any, Optional
 import logging
@@ -15,6 +14,11 @@ import os
 import gc
 from datetime import datetime
 from contextlib import asynccontextmanager
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from slowapi.middleware import SlowAPIMiddleware
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -47,7 +51,7 @@ async def lifespan(app: FastAPI):
         
         # Load the model
         print("Loading model...")
-        app.state.model = api.load('glove-wiki-gigaword-100')
+        app.state.model = api.load('glove-wiki-gigaword-50')
         print("Model loaded successfully!")
         
         app.state.loading_status = "Optimizing memory usage..."
@@ -93,20 +97,42 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# --- Security & Performance Middleware ---
+# CORS: Allow requests from frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for now (can restrict to GitHub Pages URL later)
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"]
+)
 
+# Rate limiting: default + per-endpoint overrides
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+@app.exception_handler(RateLimitExceeded)
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return PlainTextResponse("Too Many Requests", status_code=429)
+
+# Root endpoint - API info
 @app.get("/")
-async def serve_frontend():
-    """Serve the beautiful frontend interface"""
-    return FileResponse("static/index.html")
-
-
+async def root():
+    """API root endpoint"""
+    return {
+        "name": "Word Vector API",
+        "version": "1.0",
+        "status": "running",
+        "endpoints": ["/health", "/similarity", "/neighbors", "/analogy", "/most_similar"]
+    }
 
 @app.get("/similarity")
+@limiter.limit("30/minute")
 async def get_similarity(
-    word1: str = Query(..., description="First word"),
-    word2: str = Query(..., description="Second word")
+    request: Request,
+    word1: str = Query(..., description="First word", min_length=1, max_length=32, pattern=r"^[A-Za-z-]+$"),
+    word2: str = Query(..., description="Second word", min_length=1, max_length=32, pattern=r"^[A-Za-z-]+$")
 ):
     """
     Calculate cosine similarity between two words
@@ -143,11 +169,13 @@ async def get_similarity(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/analogy")
+@limiter.limit("30/minute")
 async def solve_analogy(
-    a: str = Query(..., description="Word A in analogy A - B + C = ?"),
-    b: str = Query(..., description="Word B in analogy A - B + C = ?"),
-    c: str = Query(..., description="Word C in analogy A - B + C = ?"),
-    topn: int = Query(default=1, description="Number of results to return")
+    request: Request,
+    a: str = Query(..., description="Word A in analogy A - B + C = ?", min_length=1, max_length=32, pattern=r"^[A-Za-z-]+$"),
+    b: str = Query(..., description="Word B in analogy A - B + C = ?", min_length=1, max_length=32, pattern=r"^[A-Za-z-]+$"),
+    c: str = Query(..., description="Word C in analogy A - B + C = ?", min_length=1, max_length=32, pattern=r"^[A-Za-z-]+$"),
+    topn: int = Query(default=1, ge=1, le=20, description="Number of results to return")
 ):
     """
     Solve word vector analogy: A - B + C = ?
@@ -196,9 +224,11 @@ async def solve_analogy(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/neighbors")
+@limiter.limit("30/minute")
 async def get_neighbors(
-    word: str = Query(..., description="Word to find neighbors for"),
-    topn: int = Query(default=10, description="Number of neighbors to return")
+    request: Request,
+    word: str = Query(..., description="Word to find neighbors for", min_length=1, max_length=32, pattern=r"^[A-Za-z-]+$"),
+    topn: int = Query(default=10, ge=1, le=20, description="Number of neighbors to return")
 ):
     """
     Find the most similar words to a given word
@@ -242,7 +272,7 @@ async def health_check():
     """Health check endpoint for hosting platforms"""
     model_loaded = getattr(app.state, 'model_loaded', False)
     return {
-        "status": "healthy",
+        "status": "ready" if model_loaded else "initializing",
         "timestamp": datetime.now().isoformat(),
         "service": "Word Vector API",
         "model_loaded": model_loaded,

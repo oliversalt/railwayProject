@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Word Embeddings Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo">🔤</div>
+        <div>
+          <h1>Word Embeddings Explorer</h1>
+          <p class="subtitle">Similarity • Neighbors • Analogies</p>
+        </div>
+      </div>
+      <div class="status">
+        <span id="status-dot" class="dot"></span>
+        <span id="status-text">Checking…</span>
+      </div>
+    </header>
+
+    <section class="intro">
+      <p>
+        Explore the semantic relationships between words using GloVe word embeddings. 
+        This tool uses machine learning models trained on billions of words to understand 
+        how words relate to each other in meaning. Try comparing word similarities, finding 
+        neighbors, or solving word analogies like "king - man + woman = ?"
+      </p>
+    </section>
+
+    <!-- Loading Banner -->
+    <div id="loading-banner" class="loading-banner" style="display: none;">
+      <div class="loading-content">
+        <div class="loading-spinner">⏳</div>
+        <div class="loading-text">
+          <h3 id="loading-message">Loading GloVe model...</h3>
+          <p id="loading-progress">Initializing...</p>
+          <div class="progress-bar">
+            <div id="loading-bar" class="progress-fill"></div>
+          </div>
+          <p class="loading-note">First-time startup may take 30-60 seconds while the model loads into memory. Subsequent uses will be faster! 🚀</p>
+        </div>
+      </div>
+    </div>
+
+    <main class="grid">
+      <section class="card">
+        <h2>Word Similarity</h2>
+        <p class="card-description">Compare how similar two words are to each other. The score ranges from -1 (opposite) to 1 (identical). Try: "happy" and "joyful" or "hot" and "cold".</p>
+        <div class="row">
+          <input id="simA" placeholder="word A" />
+          <input id="simB" placeholder="word B" />
+          <button id="runSim" class="btn primary">Compare</button>
+        </div>
+        <div id="simResult" class="result"></div>
+      </section>
+
+      <section class="card">
+        <h2>Nearest Neighbors</h2>
+        <p class="card-description">Find words that are most similar in meaning to your input word. The number controls how many similar words to return. Try: "ocean", "computer", or "happiness".</p>
+        <div class="row">
+          <input id="neiWord" placeholder="word" />
+          <input id="neiTopn" type="number" min="1" max="50" value="10" placeholder="top N" />
+          <button id="runNei" class="btn primary">Find</button>
+        </div>
+        <div id="neiResult" class="result"></div>
+      </section>
+
+      <section class="card analogy-card">
+        <h2>Word Analogies</h2>
+        <p class="card-description">Build word equations by adding (+) or subtracting (-) words. Example: king - man + woman = queen</p>
+        
+        <div class="analogy-builder">
+          <div class="word-equation">
+            <div class="word-input-group">
+              <input type="text" id="word1" class="word-input" placeholder="word" value="king" />
+            </div>
+            
+            <div class="operator-group">
+              <button class="operator-btn minus" data-word="2">−</button>
+            </div>
+            
+            <div class="word-input-group">
+              <input type="text" id="word2" class="word-input" placeholder="word" value="man" />
+              <button class="remove-word" data-word="2" style="display:none;">×</button>
+            </div>
+            
+            <div class="operator-group">
+              <button class="operator-btn plus" data-word="3">+</button>
+            </div>
+            
+            <div class="word-input-group">
+              <input type="text" id="word3" class="word-input" placeholder="word" value="woman" />
+              <button class="remove-word" data-word="3" style="display:none;">×</button>
+            </div>
+            
+            <span class="equals">=</span>
+            <span class="question-mark">?</span>
+          </div>
+          
+          <div class="analogy-controls">
+            <button id="addWord" class="btn">+ Add Word</button>
+            <input id="anaTopn" type="number" min="1" max="20" value="5" placeholder="Results" />
+            <button id="runAna" class="btn primary">Solve</button>
+          </div>
+        </div>
+        
+        <div id="anaResult" class="result"></div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <div class="how-it-works">
+        <h3>How It Works</h3>
+        <p>
+          In modern Large Language models (LLMs), words are represented as high-dimensional vectors called 
+          <em>word embeddings</em>. These embeddings are just a list of numbers that come from training on large amounts of text data. These vectors capture the meanings and relationships between words based on how they are used in context. Each vector itself is abstract to humans but mathematical operations on these vectors can reveal interesting relationships. You can think of the words existing in 3D space, where similar words are closer together. 3blue1brown has a great video explaining this concept in more detail: 
+          <h6>Word Embeddings Short</h6><a href="https://www.youtube.com/shorts/FJtFZwbvkI4" target="_blank">https://www.youtube.com/shorts/FJtFZwbvkI4</a> <br/>
+          <h6>LLM explainer</h6><a href="https://www.youtube.com/watch?v=wjZofJX0v4M" target="_blank">https://www.youtube.com/watch?v=wjZofJX0v4M</a>
+        </p>
+        <p>
+          The <strong>frontend</strong> (HTML/CSS/JavaScript) 
+          is hosted on <strong>GitHub Pages</strong> as static files. When you interact with the app, it sends requests to a 
+          <strong>backend API</strong> running on <strong>Google Cloud Run</strong>.
+        </p>
+        <p>
+          The backend is a Python FastAPI application running in a Docker container. It uses the GloVe (Global Vectors for 
+          Word Representation) model, which has learned word meanings from billions of words of text. The model converts each 
+          word into a 50-dimensional vector, and similar words have vectors that are close together in this space.
+        </p>
+        <p>
+          <strong>Architecture:</strong> Browser → GitHub Pages (static frontend) → Google Cloud Run (Python API + GloVe model)
+        </p>
+      </div>
+      <div class="credits">Made with FastAPI + Gensim • Deployed on Google Cloud Run</div>
+    </footer>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

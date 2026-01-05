@@ -1,0 +1,42 @@
+# Python
+
+**pycache**
+_.pyc
+_.pyo
+_.pyd
+.Python
+_.so
+_.egg
+_.egg-info
+dist
+build
+.venv
+venv/
+env/
+
+# Frontend files (not needed in backend container)
+
+index.html
+script.js
+styles.css
+
+# Git
+
+.git
+.gitignore
+
+# IDE
+
+.vscode
+.idea
+_.swp
+_.swo
+
+# Documentation
+
+README.md
+
+# OS
+
+.DS_Store
+Thumbs.db
